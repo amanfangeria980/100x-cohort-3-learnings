@@ -1,73 +1,76 @@
 import express from "express";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
+import bcrypt from "bcrypt";
+import dotenv from "dotenv"; // Import dotenv
 
-const users = [];
+// Load environment variables from .env file
 dotenv.config();
-const secret = process.env.JWT_SECRET;
+
+const users = []; // In-memory storage, consider using a database for production
 const app = express();
 app.use(express.json());
+
+// Use environment variable for JWT_SECRET
+const JWT_SECRET = process.env.JWT_SECRET || "your-default-secret-key";
+
 app.post("/signup", (req, res) => {
     const { username, password } = req.body;
     if (username.length < 5) {
-        return res.json({
-            message: "Give a big username!",
-        });
+        return res.json({ message: "Give a bigger username!" });
     }
     if (users.find((u) => u.username === username)) {
-        res.json({
-            message: "Dupliate Entry, Error!",
-        });
-        return;
+        return res.json({ message: "Duplicate Entry, Error!" });
     }
-    users.push({
-        username: username,
-        password: password,
-    });
+
+    // Hash the password before storing it
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    users.push({ username, password: hashedPassword });
     console.log(users);
-    return res.json({
-        message: "successfully registered!",
-    });
+    return res.json({ message: "Successfully registered!" });
 });
+
 app.post("/signin", (req, res) => {
     const { username, password } = req.body;
-    const foundUser = users.find((u) => {
-        if (u.username === username && u.password === password) return true;
-        else return false;
-    });
-    if (foundUser) {
-        // const token = generateToken();
-        const token = jwt.sign({ username: foundUser.username }, secret);
+    const foundUser = users.find((u) => u.username === username);
+
+    if (foundUser && bcrypt.compareSync(password, foundUser.password)) {
+        // Sign the JWT
+        const token = jwt.sign({ username: foundUser.username }, JWT_SECRET, {
+            expiresIn: "1h",
+        });
         console.log(users);
-        return res.json({
-            token: token,
-        });
-    } else
-        return res.json({
-            message: "Incorrect username or password",
-        });
+        return res.json({ token });
+    } else {
+        return res.json({ message: "Incorrect username or password" });
+    }
 });
 
 app.get("/me", (req, res) => {
-    const token = req.headers.authorization; //jwt token
-    console.log(token);
-    const decodedInformation = jwt.verify(token, secret); // {username: "amanfang"}
-    console.log(decodedInformation);
-    const username = decodedInformation.username;
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).send({ message: "Unauthorized" });
+    }
 
-    const user = users.find((u) => u.username === username);
-    if (user)
-        res.send({
-            username: user.username,
-            password: user.password,
-        });
-    else {
-        res.status(401).send({
-            message: "Unauthorized",
-        });
+    const token = authHeader.split(" ")[1];
+
+    try {
+        const decodedInformation = jwt.verify(token, JWT_SECRET);
+        const username = decodedInformation.username;
+
+        const user = users.find((u) => u.username === username);
+        if (user) {
+            return res.send({
+                username: user.username,
+                password: user.password, // In a real application, avoid sending passwords
+            });
+        } else {
+            return res.status(401).send({ message: "Unauthorized" });
+        }
+    } catch (error) {
+        return res.status(401).send({ message: "Unauthorized" });
     }
 });
 
 app.listen(3000, () => {
-    console.log("server is running on port 3000");
+    console.log("Server is running on port 3000");
 });
